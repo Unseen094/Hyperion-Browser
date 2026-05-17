@@ -1,0 +1,32 @@
+After continuous development and debugging for a very long time — coding 8 hours a day — I finally announce the publication of the first ALPHA version of Hyperion Browser!
+
+This is NOT just another Chromium fork. Hyperion is made completely from scratch — every single line of code, including:
+- Custom JavaScript Engine (HyperionJS) with bytecode VM
+- Rust HTML5 Tokenizer (zero-copy, high-performance)
+- Rust CSS Parser with complex selectors
+- Direct2D/DirectWrite rendering engine
+- Sandboxed multi-process architecture
+
+I built this browser from absolute zero — no Electron, no WebKit, no Blink. Just pure C++ and Rust.
+
+What's Inside v0.1.0 Alpha:
+- Custom JS engine with arrays, strings, functions, objects
+- HTML5 tokenizer written in Rust
+- CSS parser with full selector support
+- Tabbed browsing with toolbar and bookmarks
+- Direct2D hardware-accelerated rendering
+- Named Pipe IPC between browser and renderer
+- Windows Job Object sandboxing
+
+Known Limitations:
+- No HTTPS/TLS (yet)
+- No fetch(), async/await
+- No modern web APIs
+
+This is just the beginning.
+
+Future updates will be released every week for the next 4 weeks, then 1 update every month.
+
+Stay tuned — the best is yet to come!
+
+Download the executable and try it now!

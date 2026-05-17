@@ -1,0 +1,27 @@
+Hyperion Browser License Agreement
+
+Copyright (c) 2024 Hyperion Browser Project
+All Rights Reserved.
+
+This software is provided for educational and personal use.
+Redistribution and use in source and binary forms are permitted
+provided that the above copyright notice and this paragraph are
+duplicated in all such forms and that any documentation,
+advertising materials, and other materials related to such
+distribution and use acknowledge that the software was developed
+by the Hyperion Browser Project.
+
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+All rights reserved.
+
+---
+
+HYPERION BROWSER IS A CUSTOM BROWSER ENGINE BUILT FROM SCRATCH.
+THIS IS NOT A DERIVATIVE WORK OF ANY EXISTING BROWSER ENGINE.
