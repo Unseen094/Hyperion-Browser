@@ -1,6 +1,7 @@
 Hyperion Browser License Agreement
 
-Copyright (c) 2024 Hyperion Browser Project
+Copyright (c) 2026 Hyperion Browser Project
+Made by CloudDev
 All Rights Reserved.
 
 This software is provided for educational and personal use.

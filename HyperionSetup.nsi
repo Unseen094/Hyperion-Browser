@@ -1,5 +1,6 @@
 ; Hyperion Browser NSIS Installer Script
 ; Version: 0.1.0 Alpha
+; Made by CloudDev
 
 !include "MUI2.nsh"
 
