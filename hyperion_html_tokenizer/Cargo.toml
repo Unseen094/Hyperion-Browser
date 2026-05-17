@@ -1,0 +1,23 @@
+[package]
+name = "hyperion_html_tokenizer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Hyperion Browser Engine Team"]
+description = "Production-grade HTML5 tokenizer for the Hyperion Render Engine"
+license = "MIT"
+
+[lib]
+name = "hyperion_html_tokenizer"
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "htoken"
+path = "src/main.rs"
+
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -1,0 +1,41 @@
+# Build directories
+build/
+build_output.txt
+
+# Compiled files
+*.exe
+*.dll
+*.lib
+*.obj
+*.o
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# Logs
+*.log
+
+# Python
+*.pyc
+__pycache__/
+
+# Test files
+test.txt
+test.html
+test_dom.html
+names.txt
+decimal_to_binary.py
+divisible_by_k.py
+palindrome.py
+
+# Release package (upload separately)
+release-v0.1.0-alpha/
+
+# OS
+Thumbs.db
+.DS_Store
