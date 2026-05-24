@@ -19,7 +19,11 @@ std::vector<std::unique_ptr<hjs::ast::Stmt>> Parser::parse() {
 
 std::unique_ptr<ast::Stmt> Parser::declaration() {
     try {
-        if (match({TT::Fun}))   return function_declaration(L"function");
+    if (match({TT::Async})) {  // async function
+        consume(TT::Fun, "Expect 'function' after 'async'.");
+        return function_declaration(L"async");
+    }
+    if (match({TT::Fun})) return function_declaration(L"function");
         if (match({TT::Class})) return class_declaration();
         if (match({TT::Var}) || match({TT::Let}) || match({TT::Const})) {
             bool is_const = previous().type == TT::Const;
@@ -85,6 +89,11 @@ std::unique_ptr<ast::Stmt> Parser::statement() {
     if (match({TT::Throw}))    return throw_statement();
     if (match({TT::Try}))      return try_statement();
     if (match({TT::LeftBrace})) return std::make_unique<ast::BlockStmt>(block());
+    if (match({TT::Await})) {
+        auto expr = await_expression();
+        consume_semicolon();
+        return std::make_unique<ast::ExprStmt>(std::move(expr));
+    }
     return expression_statement();
 }
 
@@ -200,6 +209,11 @@ std::unique_ptr<ast::Stmt> Parser::expression_statement() {
     return std::make_unique<ast::ExprStmt>(std::move(expr));
 }
 
+std::unique_ptr<ast::Expr> Parser::await_expression() {
+    auto expr = expression();
+    return std::make_unique<ast::AwaitExpr>(std::move(expr));
+}
+
 // ---- Expression hierarchy -----------------------------------------------
 
 std::unique_ptr<ast::Expr> Parser::expression() { return assignment(); }
@@ -311,6 +325,10 @@ std::unique_ptr<ast::Expr> Parser::unary() {
     if (match({TT::PlusPlus, TT::MinusMinus})) {
         std::wstring op = previous().lexeme;
         return std::make_unique<ast::UnaryExpr>(op, unary(), true);
+    }
+    // Await — works as a unary prefix operator (enables top-level await)
+    if (match({TT::Await})) {
+        return std::make_unique<ast::AwaitExpr>(unary());
     }
     return postfix();
 }

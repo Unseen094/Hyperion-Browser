@@ -17,7 +17,7 @@ void compositor::end_frame(hyperion::ui::renderer& r) {
     (void)r;
 }
 
-void compositor::update_layer(const std::wstring& layer_id, const hre::layout::layout_node& root, hyperion::ui::renderer& r) {
+void compositor::update_layer(const std::wstring& layer_id, const hre::layout::LayoutNode& root, hyperion::ui::renderer& r) {
     auto& layer = m_layers[layer_id];
 
     auto* context = r.context();

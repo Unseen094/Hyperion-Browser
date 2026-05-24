@@ -49,6 +49,8 @@ public:
     virtual void visit_throw_stmt(class ThrowStmt& stmt) = 0;
     virtual void visit_try_stmt(class TryStmt& stmt) = 0;
     virtual void visit_class_stmt(class ClassStmt& stmt) = 0;
+    // Expressions
+    virtual void visit_await(class AwaitExpr& expr) = 0;
 };
 
 class Node { public: virtual ~Node() = default; };
@@ -196,6 +198,13 @@ public:
     std::unique_ptr<Expr> object;
     std::unique_ptr<Expr> index;
     std::unique_ptr<Expr> value;
+};
+
+class AwaitExpr : public Expr {
+public:
+    explicit AwaitExpr(std::unique_ptr<Expr> expr) : expression(std::move(expr)) {}
+    void accept(Visitor& v) override { v.visit_await(*this); }
+    std::unique_ptr<Expr> expression;
 };
 
 class CallExpr : public Expr {

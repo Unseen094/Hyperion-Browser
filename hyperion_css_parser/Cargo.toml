@@ -1,0 +1,16 @@
+[package]
+name = "hyperion_css_parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# No external dependencies for core parsing logic to keep it lightweight
+# We'll use standard library features for string manipulation
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 3
+lto = true

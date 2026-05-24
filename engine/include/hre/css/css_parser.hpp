@@ -3,60 +3,66 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <variant>
+#include <map>
 
 namespace hre::css {
 
-enum class value_type {
-    keyword,
-    color,
-    length,
-    percentage
+// Forward declarations
+struct CssDeclaration {
+    std::string property;
+    std::string value;
+    bool important;
 };
 
-struct css_value {
-    value_type type;
-    std::wstring data;
-    float number = 0.0f;
+struct CssRule {
+    std::vector<std::wstring> selectors;
+    std::vector<CssDeclaration> declarations;
 };
 
-struct declaration {
-    std::wstring name;
-    css_value value;
+struct CssStylesheet {
+    std::vector<CssRule> rules;
 };
 
-struct selector {
-    std::wstring tag_name;
-    std::wstring class_name;
-    std::wstring id;
-};
+// Rust FFI bindings (extern "C" functions from Rust DLL)
+// These are declared in the global namespace to match Rust's #[no_mangle]
+extern "C" {
+    char* rust_parse_css(const char* css_input);
+    void rust_free_css_string(char* s);
+}
 
-struct rule {
-    std::vector<selector> selectors;
-    std::vector<declaration> declarations;
-};
-
-struct stylesheet {
-    std::vector<rule> rules;
-};
-
-class css_parser {
+/**
+ * High-level CSS Parser interface.
+ * Uses the Rust-based lexer/parser for high performance.
+ */
+class Parser {
 public:
-    explicit css_parser(std::wstring input);
-    stylesheet parse();
+    /**
+     * Parse a CSS string into a structured stylesheet.
+     * @param css The CSS source code.
+     * @return A structured CssStylesheet object.
+     */
+    static CssStylesheet parse(const std::wstring& css);
+
+    /**
+     * Load and parse a CSS file.
+     * @param path Path to the CSS file.
+     * @return A structured CssStylesheet object.
+     */
+    static CssStylesheet parse_file(const std::wstring& path);
 
 private:
-    std::wstring m_input;
-    size_t m_pos = 0;
-
-    wchar_t consume();
-    wchar_t peek() const;
-    void skip_whitespace();
-    std::wstring consume_identifier();
+    /**
+     * Internal helper to call Rust FFI.
+     * @param css UTF-8 encoded CSS string.
+     * @return Parsed JSON-like string from Rust.
+     */
+    static std::string parse_rust(const std::string& css_utf8);
     
-    rule parse_rule();
-    selector parse_selector();
-    declaration parse_declaration();
+    /**
+     * Convert the JSON-like result from Rust to C++ structures.
+     * (Simplified parser for the specific JSON format output by Rust)
+     */
+    static CssStylesheet parse_result(const std::string& json_result);
 };
 
 } // namespace hre::css

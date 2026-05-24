@@ -44,6 +44,8 @@ struct HToken {
     int        force_quirks;
     int        attr_count;
     HAttribute attrs[HTOKEN_MAX_ATTRS];
+    char       public_id[HTOKEN_NAME_BUF];
+    char       system_id[HTOKEN_NAME_BUF];
     int        line;
     int        column;
 };

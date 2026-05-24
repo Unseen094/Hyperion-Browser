@@ -28,6 +28,8 @@ public:
 
     ID2D1DeviceContext5* context() const { return m_d2d_context.Get(); }
     IDWriteFactory7* write_factory() const { return m_dwrite_factory.Get(); }
+    ID2D1Factory7* d2d_factory() const { return m_d2d_factory.Get(); }
+    ID2D1Device5* d2d_device() const { return m_d2d_device.Get(); }
 
 private:
     ComPtr<ID2D1Factory7> m_d2d_factory;
@@ -36,6 +38,7 @@ private:
     ComPtr<IDXGISwapChain1> m_swap_chain;
     ComPtr<ID2D1Bitmap1> m_target_bitmap;
     ComPtr<IDWriteFactory7> m_dwrite_factory;
+    HWND m_main_hwnd = nullptr;
 
     void create_device_resources(HWND hwnd);
 };

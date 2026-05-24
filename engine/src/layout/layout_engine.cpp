@@ -1,245 +1,191 @@
-#include <hre/layout/layout_engine.hpp>
-#include <hre/style/style_engine.hpp>
-#include <hyperion/ui/renderer.hpp>
+#include "hre/layout/layout_engine.hpp"
 #include <algorithm>
-#include <dwrite_3.h>
-#include <wrl/client.h>
+#include <iostream>
 
 namespace hre::layout {
 
-layout_node layout_engine::compute_layout(dom::node* root, float viewport_width, hyperion::ui::renderer& r) {
-    layout_node root_layout;
-    root_layout.dom_node = root;
-    float current_y = 0.0f;
-    
-    // Initial pass: compute block-level positions and dimensions
-    layout_recursive(root, current_y, viewport_width, r, root_layout);
-    
-    return root_layout;
+LayoutEngine::LayoutEngine() {}
+
+LayoutEngine::~LayoutEngine() {}
+
+void LayoutEngine::load_css(const std::wstring& css) {
+    style_engine.load_stylesheet(css);
 }
 
-void layout_engine::layout_recursive(dom::node* node, float& current_y, float viewport_width, hyperion::ui::renderer& r, layout_node& out_layout) {
+void LayoutEngine::load_raw_rules(const std::vector<std::wstring>& rules) {
+    style_engine.load_raw_rules(rules);
+}
+
+std::shared_ptr<LayoutNode> LayoutEngine::build_layout_tree(const dom::Node* root, const css::ComputedStyle& parent_style) {
+    if (!root) return nullptr;
+
+    auto layout_node = std::make_shared<LayoutNode>(root);
+    layout_node->style = style_engine.compute_style(root, &parent_style);
+
+    // Recursively build child_nodes
+    for (const auto& child : root->child_nodes()) {
+        if (child) {
+            auto child_layout = build_layout_tree(child.get(), layout_node->style);
+            if (child_layout) {
+                child_layout->parent = layout_node;
+                layout_node->children.push_back(child_layout);
+            }
+        }
+    }
+
+    return layout_node;
+}
+
+void LayoutEngine::layout(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
     if (!node) return;
 
-    auto it = style::g_computed_styles.find(node);
-    if (it == style::g_computed_styles.end()) {
-        style::computed_style default_style;
-        style::g_computed_styles[node] = default_style;
-        it = style::g_computed_styles.find(node);
-    }
-    auto& style = it->second;
+    // Calculate Box Model
+    calculate_box_model(node, available_width);
 
-    // 1. Skip non-rendered nodes
-    if (style.display == L"none") {
+    const std::wstring& display = node->style.display;
+    const std::wstring& position = node->style.position;
+
+    // Layout based on display type
+    if (display == L"flex") {
+        layout_flex(node, available_width, available_height);
+    } else if (display == L"grid") {
+        layout_grid(node, available_width, available_height);
+    } else if (display == L"inline" || display == L"inline-block") {
+        layout_inline(node, available_width, available_height);
+    } else if (display == L"table" || display == L"inline-table") {
+        layout_table(node, available_width, available_height);
+    } else {
+        // Default to block formatting context
+        layout_block(node, available_width, available_height);
+    }
+
+    // Handle positioned elements (relative, absolute, fixed, sticky)
+    if (position != L"static") {
+        layout_positioned(node, available_width, available_height);
+    }
+
+    // Detect replaced elements (e.g., img, video, audio, canvas)
+    bool is_replaced = false;
+    if (auto* elem = dynamic_cast<const hre::dom::Element*>(node->dom_node)) {
+        const std::wstring& tag = elem->tag_name();
+        if (tag == L"img" || tag == L"video" || tag == L"audio" || tag == L"canvas") {
+            is_replaced = true;
+        }
+    }
+    if (is_replaced) {
+        layout_replaced(node, available_width, available_height);
+    }
+
+    // Overflow & clipping (currently a stub)
+    layout_overflow(node, available_width, available_height);
+}
+
+void LayoutEngine::layout_tree(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    if (!node) return;
+    layout(node, available_width, available_height);
+
+    for (auto& child : node->children) {
+        double child_width = available_width - node->box_model.padding_left - node->box_model.padding_right;
+        layout_tree(child, child_width, available_height);
+    }
+}
+
+void LayoutEngine::calculate_box_model(std::shared_ptr<LayoutNode> node, double parent_width) {
+    const auto& style = node->style;
+    node->box_model = ::hre::layout::calculate_box_model(style, parent_width, 0);
+
+    // Content Box
+    node->content_box.width = node->box_model.content_width;
+    node->content_box.height = node->box_model.content_height;
+
+    // Padding Box
+    node->padding_box.x = node->box_model.margin_left + node->box_model.border_left;
+    node->padding_box.y = node->box_model.margin_top + node->box_model.border_top;
+    node->padding_box.width = node->box_model.content_width + node->box_model.get_padding_width();
+    node->padding_box.height = node->box_model.content_height + node->box_model.get_padding_height();
+
+    // Border Box
+    node->border_box.x = node->box_model.margin_left;
+    node->border_box.y = node->box_model.margin_top;
+    node->border_box.width = node->box_model.content_width + node->box_model.get_padding_width() + node->box_model.get_border_width();
+    node->border_box.height = node->box_model.content_height + node->box_model.get_padding_height() + node->box_model.get_border_height();
+
+    // Margin Box
+    node->margin_box.x = 0;
+    node->margin_box.y = 0;
+    node->margin_box.width = node->border_box.width + node->box_model.get_margin_width();
+    node->margin_box.height = node->border_box.height + node->box_model.get_margin_height();
+}
+
+void LayoutEngine::layout_block(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    // Use BlockLayout for proper block formatting context
+    BlockLayoutResult result = block_layout.layout(node, available_width, available_height);
+    node->content_box.width = result.content_width;
+    node->content_box.height = result.content_height;
+}
+
+void LayoutEngine::layout_inline(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    double out_height = 0;
+    inline_layout.layout_inline_content(node, node->box_model, available_width, out_height);
+    node->content_box.height = out_height;
+}
+
+void LayoutEngine::layout_flex(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    flexbox_engine.layout_flex_container(node, available_width, available_height);
+}
+
+void LayoutEngine::layout_grid(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    grid_engine.layout_grid_container(node, available_width, available_height);
+}
+
+void LayoutEngine::layout_positioned(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    positioning_engine.layout_positioned(node, available_width, available_height);
+}
+
+void LayoutEngine::layout_table(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    table_engine.layout_table(node, available_width, available_height);
+}
+
+void LayoutEngine::layout_replaced(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    replaced_engine.layout_replaced(node, available_width, available_height);
+}
+
+void LayoutEngine::layout_overflow(std::shared_ptr<LayoutNode> node, double available_width, double available_height) {
+    overflow_engine.layout_overflow(node, available_width, available_height);
+}
+
+void LayoutEngine::layout_text_content(std::shared_ptr<LayoutNode> node, double available_width) {
+    // Placeholder for future text layout within block/inline containers
+    // Currently no special handling beyond box model
+    (void)node;
+    (void)available_width;
+}
+
+void LayoutEngine::update_style_for_node(std::shared_ptr<LayoutNode> node, const dom::Element* target,
+                                          bool is_hovered, bool is_focused) {
+    if (!node) return;
+
+    if (node->dom_node == target) {
+        const css::ComputedStyle* parent_style = nullptr;
+        css::ComputedStyle parent_default;
+        if (node->parent) {
+            parent_style = &node->parent->style;
+        } else {
+            parent_default.display = L"block";
+            parent_style = &parent_default;
+        }
+        node->style = style_engine.compute_style(node->dom_node, parent_style, is_hovered, is_focused);
         return;
     }
 
-    out_layout.dom_node = node;
-
-    if (node->type() == dom::node_type::element) {
-        auto* el = static_cast<dom::element*>(node);
-        
-        // 2. Fetch Detailed Box Model Properties
-        float mt = style.margin_top, mr = style.margin_right, mb = style.margin_bottom, ml = style.margin_left;
-        float pt = style.padding_top, pr = style.padding_right, pb = style.padding_bottom, pl = style.padding_left;
-        float bt = style.border_top, br = style.border_right, bb = style.border_bottom, bl = style.border_left;
-        
-        float styled_width = style.width;
-        float styled_height = style.height;
-
-        // 3. Handle Flexbox specifically
-        if (style.display == L"flex") {
-            layout_flex(node, current_y, viewport_width, r, out_layout);
-            return;
-        }
-
-        // 4. Block Layout Foundation
-        if (style.display == L"block") {
-            current_y += mt;
-        }
-
-        out_layout.dimensions.x = ml;
-        out_layout.dimensions.y = current_y;
-        
-        // Auto-width for block elements if not specified
-        float available_width = viewport_width - ml - mr;
-        out_layout.dimensions.width = (styled_width > 0) ? styled_width : available_width;
-        
-        out_layout.dimensions.margin = { ml, mr, mt, mb };
-        out_layout.dimensions.padding = { pl, pr, pt, pb };
-        out_layout.dimensions.border = { bl, br, bt, bb };
-
-        float start_y = current_y;
-        float children_y = start_y + bt + pt;
-        float children_start_y = children_y;
-        
-        // Tracking for inline-flow (simple line breaking)
-        float current_line_x = 0.0f;
-        float current_line_height = 0.0f;
-
-        for (const auto& child : node->children()) {
-            // Ensure child has a style entry
-            auto child_it = style::g_computed_styles.find(child.get());
-            if (child_it == style::g_computed_styles.end()) {
-                style::computed_style default_style;
-                style::g_computed_styles[child.get()] = default_style;
-                child_it = style::g_computed_styles.find(child.get());
-            }
-            const auto& child_style = child_it->second;
-            if (child_style.display == L"none") continue;
-
-            std::wstring child_display = child_style.display;
-            if (child->type() == dom::node_type::text) child_display = L"inline";
-
-            layout_node child_layout;
-            
-            if (child_display == L"inline") {
-                // Inline layout logic: wrap text/inline boxes
-                float inline_avail = out_layout.dimensions.content_width() - current_line_x;
-                layout_recursive(child.get(), children_y, inline_avail, r, child_layout);
-                
-                child_layout.dimensions.x = current_line_x + (bl + pl);
-                child_layout.dimensions.y = children_y;
-                
-                current_line_x += child_layout.dimensions.width;
-                current_line_height = (std::max)(current_line_height, child_layout.dimensions.height);
-                
-                // Simple wrapping
-                if (current_line_x > out_layout.dimensions.content_width()) {
-                    current_line_x = 0;
-                    children_y += current_line_height;
-                    current_line_height = 0;
-                    // Reposition child on new line
-                    child_layout.dimensions.x = bl + pl;
-                    child_layout.dimensions.y = children_y;
-                    current_line_x = child_layout.dimensions.width;
-                }
-            } else {
-                // Block layout logic: push to next line
-                if (current_line_x > 0) {
-                    children_y += current_line_height;
-                    current_line_x = 0;
-                    current_line_height = 0;
-                }
-                
-                layout_recursive(child.get(), children_y, out_layout.dimensions.content_width(), r, child_layout);
-                child_layout.dimensions.x += (bl + pl);
-            }
-            
-            out_layout.children.push_back(std::move(child_layout));
-        }
-        
-        children_y += current_line_height;
-
-        // 5. Calculate Final Height
-        if (styled_height > 0) {
-            out_layout.dimensions.height = styled_height;
-        } else {
-            out_layout.dimensions.height = (children_y - children_start_y) + (bt + pt + bb + pb);
-        }
-
-        // Special handling for replaced elements (img, etc.)
-        if (el->tag_name() == L"img") {
-            if (styled_width <= 0) out_layout.dimensions.width = 100.0f;
-            if (styled_height <= 0) out_layout.dimensions.height = 100.0f;
-        }
-
-        current_y = start_y + out_layout.dimensions.height;
-        if (style.display == L"block") current_y += mb;
-
-    } else if (node->type() == dom::node_type::text) {
-        // 6. Text Layout (DirectWrite)
-        auto* text_n = static_cast<dom::text_node*>(node);
-        
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
-        r.write_factory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"en-us", &format);
-            
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
-        r.write_factory()->CreateTextLayout(text_n->text().c_str(), (UINT32)text_n->text().length(),
-            format.Get(), viewport_width, 1000.0f, &text_layout);
-            
-        DWRITE_TEXT_METRICS text_metrics;
-        text_layout->GetMetrics(&text_metrics);
-
-        out_layout.dimensions.x = 0;
-        out_layout.dimensions.y = current_y;
-        out_layout.dimensions.width = text_metrics.width;
-        out_layout.dimensions.height = text_metrics.height;
+    for (auto& child : node->children) {
+        update_style_for_node(child, target, is_hovered, is_focused);
     }
 }
 
-void layout_engine::layout_flex(dom::node* node, float& current_y, float viewport_width, hyperion::ui::renderer& r, layout_node& out_layout) {
-    auto& style = style::g_computed_styles[node];
-    out_layout.dom_node = node;
-    
-    float mt = style.margin_top, mr = style.margin_right, mb = style.margin_bottom, ml = style.margin_left;
-    float pt = style.padding_top, pr = style.padding_right, pb = style.padding_bottom, pl = style.padding_left;
-    float bt = style.border_top, br = style.border_right, bb = style.border_bottom, bl = style.border_left;
-
-    float start_y = current_y;
-    current_y += mt;
-
-    float available_width = viewport_width - ml - mr;
-    float content_width = (style.width > 0) ? style.width : available_width;
-    
-    out_layout.dimensions.x = ml;
-    out_layout.dimensions.y = current_y;
-    out_layout.dimensions.width = content_width;
-    out_layout.dimensions.margin = { ml, mr, mt, mb };
-    out_layout.dimensions.padding = { pl, pr, pt, pb };
-    out_layout.dimensions.border = { bl, br, bt, bb };
-
-    float flex_x = bl + pl;
-    float flex_y = bt + pt;
-    float max_line_height = 0;
-    float current_line_width = 0;
-
-    if (node->type() == dom::node_type::element) {
-        auto* el = static_cast<dom::element*>(node);
-        for (auto& child : el->children()) {
-            if (style::g_computed_styles[child.get()].display == L"none") continue;
-
-            layout_node child_layout;
-            float dummy_y = 0; 
-            layout_recursive(child.get(), dummy_y, out_layout.dimensions.content_width(), r, child_layout);
-            
-            if (style.flex_direction == L"row") {
-                child_layout.dimensions.x = flex_x + current_line_width;
-                child_layout.dimensions.y = flex_y;
-                current_line_width += child_layout.dimensions.width;
-                max_line_height = (std::max)(max_line_height, child_layout.dimensions.height);
-            } else {
-                child_layout.dimensions.x = flex_x;
-                child_layout.dimensions.y = flex_y;
-                flex_y += child_layout.dimensions.height;
-                max_line_height += child_layout.dimensions.height;
-            }
-            out_layout.children.push_back(std::move(child_layout));
-        }
-    }
-
-    if (style.height > 0) {
-        out_layout.dimensions.height = style.height;
-    } else {
-        out_layout.dimensions.height = max_line_height + (bt + pt + bb + pb);
-    }
-
-    current_y = start_y + out_layout.dimensions.height + mb + mt;
-}
-
-layout_node* layout_engine::hit_test(layout_node& root, float x, float y) {
-    bool inside = (x >= root.dimensions.x && x <= root.dimensions.x + root.dimensions.width &&
-                  y >= root.dimensions.y && y <= root.dimensions.y + root.dimensions.height);
-    
-    if (!inside) return nullptr;
-
-    for (auto it = root.children.rbegin(); it != root.children.rend(); ++it) {
-        auto* found = hit_test(*it, x, y);
-        if (found) return found;
-    }
-
-    return &root;
+LayoutRect LayoutEngine::get_bounds(const std::shared_ptr<LayoutNode>& node) const {
+    if (!node) return LayoutRect();
+    return node->margin_box;
 }
 
 } // namespace hre::layout

@@ -37,6 +37,7 @@ const MAX_ATTRS: usize = 32;
 
 /// A single attribute in C layout.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct CAttribute {
     pub name: [c_char; NAME_BUF],
     pub value: [c_char; DATA_BUF],
@@ -54,6 +55,10 @@ pub struct CToken {
     pub force_quirks: c_int,
     pub attr_count: c_int,
     pub attrs: [CAttribute; MAX_ATTRS],
+    /// DOCTYPE public identifier
+    pub public_id: [c_char; NAME_BUF],
+    /// DOCTYPE system identifier
+    pub system_id: [c_char; NAME_BUF],
     /// Source line (1-based).
     pub line: c_int,
     /// Source column (1-based).
@@ -88,6 +93,8 @@ fn blank_token(kind: CTokenKind) -> CToken {
         force_quirks: 0,
         attr_count: 0,
         attrs: [CAttribute { name: [0; NAME_BUF], value: [0; DATA_BUF] }; MAX_ATTRS],
+        public_id: [0; NAME_BUF],
+        system_id: [0; NAME_BUF],
         line: 0,
         column: 0,
     }
@@ -100,6 +107,12 @@ fn rust_token_to_c(tok: &Token) -> CToken {
             if let Some(name) = &data.name {
                 write_str(&mut ct.name, name);
                 write_str(&mut ct.data, name);
+            }
+            if let Some(pid) = &data.public_id {
+                write_str(&mut ct.public_id, pid);
+            }
+            if let Some(sid) = &data.system_id {
+                write_str(&mut ct.system_id, sid);
             }
             ct.force_quirks = data.force_quirks as c_int;
             ct.line = span.start.line as c_int;

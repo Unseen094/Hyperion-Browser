@@ -16,6 +16,7 @@
 #include <codecvt>
 #include <locale>
 #include <sstream>
+#include <functional>
 
 using namespace hyperion::platform::ipc;
 
@@ -81,10 +82,10 @@ uint32_t css_color_to_uint32(const std::wstring& color) {
 }
 
 // Convert computed layout node tree to a flat list of render commands
-void generate_commands_recursive(const hre::layout::layout_node& node, std::vector<hre::render::render_command>& out_commands) {
+void generate_commands_recursive(const hre::layout::LayoutNode& node, std::vector<hre::render::render_command>& out_commands) {
     if (node.dom_node->type() == hre::dom::node_type::element) {
-        auto* el = static_cast<hre::dom::element*>(node.dom_node);
-        const auto& s = hre::style::g_computed_styles[node.dom_node];
+        auto* el = static_cast<const hre::dom::element*>(node.dom_node);
+        const auto& s = hre::style::g_computed_styles[const_cast<hre::dom::node*>(node.dom_node)];
 
         if (s.display == L"none" || s.visibility == L"hidden") return;
 
@@ -92,10 +93,10 @@ void generate_commands_recursive(const hre::layout::layout_node& node, std::vect
         if (s.box_shadow_blur > 0) {
             hre::render::render_command cmd;
             cmd.type = hre::render::command_type::SHADOW;
-            cmd.x = node.dimensions.x;
-            cmd.y = node.dimensions.y;
-            cmd.width = node.dimensions.width;
-            cmd.height = node.dimensions.height;
+            cmd.x = static_cast<float>(node.content_box.x);
+            cmd.y = static_cast<float>(node.content_box.y);
+            cmd.width = static_cast<float>(node.content_box.width);
+            cmd.height = static_cast<float>(node.content_box.height);
             cmd.shadow_offset_x = s.box_shadow_offset_x;
             cmd.shadow_offset_y = s.box_shadow_offset_y;
             cmd.shadow_color = css_color_to_uint32(s.box_shadow_color);
@@ -107,10 +108,10 @@ void generate_commands_recursive(const hre::layout::layout_node& node, std::vect
         if (s.background_color != L"transparent") {
             hre::render::render_command cmd;
             cmd.type = s.border_radius > 0 ? hre::render::command_type::ROUNDED_RECTANGLE : hre::render::command_type::RECTANGLE;
-            cmd.x = node.dimensions.x;
-            cmd.y = node.dimensions.y;
-            cmd.width = node.dimensions.width;
-            cmd.height = node.dimensions.height;
+            cmd.x = static_cast<float>(node.content_box.x);
+            cmd.y = static_cast<float>(node.content_box.y);
+            cmd.width = static_cast<float>(node.content_box.width);
+            cmd.height = static_cast<float>(node.content_box.height);
             cmd.bg_color = css_color_to_uint32(s.background_color);
             cmd.border_radius = s.border_radius;
             out_commands.push_back(cmd);
@@ -122,10 +123,10 @@ void generate_commands_recursive(const hre::layout::layout_node& node, std::vect
             if (!src.empty()) {
                 hre::render::render_command cmd;
                 cmd.type = hre::render::command_type::IMAGE;
-                cmd.x = node.dimensions.x;
-                cmd.y = node.dimensions.y;
-                cmd.width = node.dimensions.width;
-                cmd.height = node.dimensions.height;
+                cmd.x = static_cast<float>(node.content_box.x);
+                cmd.y = static_cast<float>(node.content_box.y);
+                cmd.width = static_cast<float>(node.content_box.width);
+                cmd.height = static_cast<float>(node.content_box.height);
                 cmd.image_src = src;
                 out_commands.push_back(cmd);
             }
@@ -136,10 +137,10 @@ void generate_commands_recursive(const hre::layout::layout_node& node, std::vect
         if (bw > 0 && s.border_color != L"transparent") {
             hre::render::render_command cmd;
             cmd.type = s.border_radius > 0 ? hre::render::command_type::ROUNDED_RECTANGLE : hre::render::command_type::RECTANGLE;
-            cmd.x = node.dimensions.x;
-            cmd.y = node.dimensions.y;
-            cmd.width = node.dimensions.width;
-            cmd.height = node.dimensions.height;
+            cmd.x = static_cast<float>(node.content_box.x);
+            cmd.y = static_cast<float>(node.content_box.y);
+            cmd.width = static_cast<float>(node.content_box.width);
+            cmd.height = static_cast<float>(node.content_box.height);
             cmd.bg_color = 0; // Transparent fill
             cmd.border_color = css_color_to_uint32(s.border_color);
             cmd.border_width = bw;
@@ -148,15 +149,15 @@ void generate_commands_recursive(const hre::layout::layout_node& node, std::vect
         }
 
     } else if (node.dom_node->type() == hre::dom::node_type::text) {
-        auto* text_node = static_cast<hre::dom::text_node*>(node.dom_node);
-        auto& parent_style = hre::style::g_computed_styles[node.dom_node->parent()];
+        auto* text_node = static_cast<const hre::dom::text_node*>(node.dom_node);
+        auto& parent_style = hre::style::g_computed_styles[const_cast<hre::dom::node*>(node.dom_node->parent())];
 
         hre::render::render_command cmd;
         cmd.type = hre::render::command_type::TEXT;
-        cmd.x = node.dimensions.x;
-        cmd.y = node.dimensions.y;
-        cmd.width = node.dimensions.width;
-        cmd.height = node.dimensions.height;
+        cmd.x = static_cast<float>(node.content_box.x);
+        cmd.y = static_cast<float>(node.content_box.y);
+        cmd.width = static_cast<float>(node.content_box.width);
+        cmd.height = static_cast<float>(node.content_box.height);
         cmd.text_content = text_node->text();
         cmd.font_family = parent_style.font_family.empty() ? L"Segoe UI" : parent_style.font_family;
         cmd.font_size = parent_style.font_size > 0 ? parent_style.font_size : 14.0f;
@@ -165,8 +166,8 @@ void generate_commands_recursive(const hre::layout::layout_node& node, std::vect
     }
 
     // Process children
-    for (const auto& child : node.children) {
-        generate_commands_recursive(child, out_commands);
+    for (const auto& child_ptr : node.children) {
+        generate_commands_recursive(*child_ptr, out_commands);
     }
 }
 
@@ -204,7 +205,7 @@ int main(int argc, char* argv[]) {
 
     // Renderer state
     std::unique_ptr<hre::dom::document> document;
-    std::optional<hre::layout::layout_node> layout_root;
+    std::shared_ptr<hre::layout::LayoutNode> layout_root;
     std::wstring current_url;
     float current_width = 1000.0f; // Default viewport width
 
@@ -213,8 +214,10 @@ int main(int argc, char* argv[]) {
         if (!document) return;
 
         // Compute Layout
-        hre::layout::layout_engine layout_eng;
-        layout_root = layout_eng.compute_layout(document.get(), current_width, ui_renderer);
+        hre::layout::LayoutEngine layout_eng;
+        hre::css::ComputedStyle default_style;
+        layout_root = layout_eng.build_layout_tree(document.get(), default_style);
+        layout_eng.layout_tree(layout_root, static_cast<double>(current_width), 0);
 
         // Traverse Layout and generate render commands
         std::vector<hre::render::render_command> commands;
@@ -343,8 +346,8 @@ int main(int argc, char* argv[]) {
                 L".flex-box div { background: #2d2d4a; padding: 30px; border-radius: 8px; flex: 1; text-align: center; }"
                 L".back { background: #4a4a6a; }";
 
-            hre::css::css_parser css_p(default_css);
-            auto stylesheet = css_p.parse();
+            hre::css::stylesheet stylesheet;
+            stylesheet.raw_rules.push_back(default_css);
 
             // Apply Styles
             hre::style::style_engine style_eng;
@@ -375,12 +378,20 @@ int main(int argc, char* argv[]) {
 
                 HYPERION_LOG_INFO("Renderer hit-testing click at ({:.1f}, {:.1f})", x, y);
 
-                hre::layout::layout_engine layout_eng;
-                auto* hit = layout_eng.hit_test(*layout_root, x, y);
+                // Simple hit-test by traversing layout tree
+                hre::layout::LayoutNode* hit = nullptr;
+                std::function<void(const hre::layout::LayoutNode&)> hit_test_fn = [&](const hre::layout::LayoutNode& n) {
+                    if (x >= n.content_box.x && x <= n.content_box.x + n.content_box.width &&
+                        y >= n.content_box.y && y <= n.content_box.y + n.content_box.height) {
+                        hit = const_cast<hre::layout::LayoutNode*>(&n);
+                    }
+                    for (const auto& c : n.children) hit_test_fn(*c);
+                };
+                hit_test_fn(*layout_root);
                 if (hit && hit->dom_node) {
                     HYPERION_LOG_INFO("Renderer hit-tested DOM element! Triggering click...");
                     hre::script::script_engine script_eng(document.get());
-                    script_eng.trigger_event(hit->dom_node, L"click");
+                    script_eng.trigger_event(const_cast<hre::dom::node*>(hit->dom_node), L"click");
 
                     // Re-render and send frame in case JS changed styles/contents
                     recompute_and_send_frame();

@@ -40,7 +40,7 @@ D2D1_COLOR_F css_to_d2d(const std::wstring& color) {
     return D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f); // Default dark gray
 }
 
-void painter::paint(const layout::layout_node& root, hyperion::ui::renderer& r) {
+void painter::paint(const layout::LayoutNode& root, hyperion::ui::renderer& r) {
     paint_recursive(root, r);
 }
 
@@ -48,21 +48,21 @@ void painter::paint(const layout::layout_node& root, hyperion::ui::renderer& r) 
 #undef DrawText
 #endif
 
-void painter::paint_recursive(const layout::layout_node& node, hyperion::ui::renderer& r) {
+void painter::paint_recursive(const layout::LayoutNode& node, hyperion::ui::renderer& r) {
     auto* context = r.context();
     if (!context) return;
 
     if (node.dom_node->type() == dom::node_type::element) {
-        auto* el = static_cast<dom::element*>(node.dom_node);
-        const auto& s = style::g_computed_styles[node.dom_node];
+        auto* el = static_cast<const dom::element*>(node.dom_node);
+        const auto& s = style::g_computed_styles[const_cast<dom::node*>(node.dom_node)];
 
         if (s.display == L"none" || s.visibility == L"hidden") return;
 
         D2D1_RECT_F rect = D2D1::RectF(
-            node.dimensions.x,
-            node.dimensions.y,
-            node.dimensions.x + node.dimensions.width,
-            node.dimensions.y + node.dimensions.height
+            node.content_box.x,
+            node.content_box.y,
+            node.content_box.x + node.content_box.width,
+            node.content_box.y + node.content_box.height
         );
 
         // 1. Box Shadow (Foundation)
@@ -115,8 +115,8 @@ void painter::paint_recursive(const layout::layout_node& node, hyperion::ui::ren
         }
 
     } else if (node.dom_node->type() == dom::node_type::text) {
-        auto* text_node = static_cast<dom::text_node*>(node.dom_node);
-        auto& parent_style = style::g_computed_styles[node.dom_node->parent()];
+        auto* text_node = static_cast<const dom::text_node*>(node.dom_node);
+        auto& parent_style = style::g_computed_styles[const_cast<dom::node*>(node.dom_node->parent())];
 
         Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
         r.write_factory()->CreateTextFormat(
@@ -145,9 +145,9 @@ void painter::paint_recursive(const layout::layout_node& node, hyperion::ui::ren
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, RGB(255, 255, 255));
 
-            RECT text_rect = {(LONG)node.dimensions.x, (LONG)node.dimensions.y,
-                (LONG)(node.dimensions.x + node.dimensions.width),
-                (LONG)(node.dimensions.y + node.dimensions.height)};
+            RECT text_rect = {(LONG)node.content_box.x, (LONG)node.content_box.y,
+                (LONG)(node.content_box.x + node.content_box.width),
+                (LONG)(node.content_box.y + node.content_box.height)};
             DrawTextW(hdc, text_node->text().c_str(), -1, &text_rect, DT_LEFT | DT_TOP);
 
             SelectObject(hdc, hOldFont);
@@ -158,7 +158,7 @@ void painter::paint_recursive(const layout::layout_node& node, hyperion::ui::ren
 
     // Paint children
     for (const auto& child : node.children) {
-        paint_recursive(child, r);
+        paint_recursive(*child, r);
     }
 }
 

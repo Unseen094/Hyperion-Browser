@@ -103,10 +103,28 @@ impl<'src> Tokenizer<'src> {
             TokenizerState::CommentEnd => self.handle_comment_end(),
             TokenizerState::Doctype => self.handle_doctype(),
             TokenizerState::DoctypeName => self.handle_doctype_name(),
+            TokenizerState::BeforeDoctypeName => self.handle_before_doctype_name(),
+            TokenizerState::AfterDoctypeName => self.handle_after_doctype_name(),
+            TokenizerState::AfterDoctypePublicKeyword => self.handle_after_doctype_public_keyword(),
+            TokenizerState::BeforeDoctypePublicIdentifier => self.handle_before_doctype_public_identifier(),
+            TokenizerState::DoctypePublicIdentifierDoubleQuoted => self.handle_doctype_public_id_dquote(),
+            TokenizerState::AfterDoctypeSystemKeyword => self.handle_after_doctype_system_keyword(),
+            TokenizerState::BeforeDoctypeSystemIdentifier => self.handle_before_doctype_system_identifier(),
+            TokenizerState::DoctypeSystemIdentifierDoubleQuoted => self.handle_doctype_system_id_dquote(),
+            TokenizerState::BogusDoctype => self.handle_bogus_doctype(),
             TokenizerState::ScriptData => self.handle_script_data(),
             TokenizerState::ScriptDataLessThanSign => self.handle_script_data_lt(),
             TokenizerState::ScriptDataEndTagOpen => self.handle_script_data_end_tag_open(),
             TokenizerState::ScriptDataEndTagName => self.handle_script_data_end_tag_name(),
+            TokenizerState::RAWTEXT => self.handle_rawtext(),
+            TokenizerState::RAWTEXTLessThanSign => self.handle_rawtext_lt(),
+            TokenizerState::RAWTEXTEndTagOpen => self.handle_rawtext_end_tag_open(),
+            TokenizerState::RAWTEXTEndTagName => self.handle_rawtext_end_tag_name(),
+            TokenizerState::RCDATA => self.handle_rcdata(),
+            TokenizerState::RCDATALessThanSign => self.handle_rcdata_lt(),
+            TokenizerState::RCDATAEndTagOpen => self.handle_rcdata_end_tag_open(),
+            TokenizerState::RCDATAEndTagName => self.handle_rcdata_end_tag_name(),
+            TokenizerState::CDATASection => self.handle_cdata_section(),
             TokenizerState::Eof => {}
         }
     }
@@ -119,8 +137,8 @@ impl<'src> Tokenizer<'src> {
         if !self.text_buf.is_empty() {
             let mut data = std::mem::take(&mut self.text_buf);
             
-            // Only decode entities in normal Data state, not ScriptData
-            if matches!(self.state, TokenizerState::Data | TokenizerState::TagOpen | TokenizerState::Eof) {
+            // Decode entities only in Data and RCDATA states, not in ScriptData or RAWTEXT
+            if matches!(self.state, TokenizerState::Data | TokenizerState::TagOpen | TokenizerState::Eof | TokenizerState::RCDATA | TokenizerState::RCDATALessThanSign) {
                 data = decode_html_entities(&data);
             }
 
@@ -162,8 +180,17 @@ impl<'src> Tokenizer<'src> {
             });
         }
 
-        if !is_end_tag && tag_name == "script" {
-            self.state = TokenizerState::ScriptData;
+        if !is_end_tag {
+            match tag_name.as_str() {
+                "script" => self.state = TokenizerState::ScriptData,
+                "style" | "xmp" | "iframe" | "noembed" | "noframes" => {
+                    self.state = TokenizerState::RAWTEXT;
+                }
+                "title" | "textarea" => {
+                    self.state = TokenizerState::RCDATA;
+                }
+                _ => self.state = TokenizerState::Data,
+            }
         } else {
             self.state = TokenizerState::Data;
         }
@@ -485,7 +512,11 @@ impl<'src> Tokenizer<'src> {
         } else if self.input.consume_str_ci("DOCTYPE") {
             self.doctype_start = self.input.location();
             self.doctype = DoctypeData::default();
-            self.state = TokenizerState::Doctype;
+            self.state = TokenizerState::BeforeDoctypeName;
+        } else if self.input.consume_str_ci("[CDATA[") {
+            self.text_start = self.input.location();
+            self.text_buf.clear();
+            self.state = TokenizerState::CDATASection;
         } else {
             // Unknown markup declaration — consume until '>' and warn
             self.diag_warn(DiagnosticCode::UnexpectedCharAfterLt, "Unknown markup declaration");
@@ -551,41 +582,14 @@ impl<'src> Tokenizer<'src> {
     }
 
     fn handle_doctype(&mut self) {
-        match self.input.peek() {
-            Some(c) if c.is_ascii_whitespace() => { self.input.next_char(); }
-            Some(c) if c.is_ascii_alphabetic() => {
-                self.doctype.name = Some(String::new());
-                self.state = TokenizerState::DoctypeName;
-            }
-            Some('>') => {
-                self.diag_error(DiagnosticCode::MalformedDoctype, "Empty DOCTYPE");
-                self.doctype.force_quirks = true;
-                self.input.next_char();
-                self.emit_doctype();
-            }
-            None => {
-                self.diag_error(DiagnosticCode::UnexpectedEof, "EOF in DOCTYPE");
-                self.doctype.force_quirks = true;
-                self.emit_doctype();
-                self.emit_eof();
-            }
-            Some(c) => {
-                self.diag_warn(DiagnosticCode::MalformedDoctype, &format!("Unexpected '{}' in DOCTYPE", c));
-                self.input.next_char();
-            }
-        }
+        self.state = TokenizerState::BeforeDoctypeName;
     }
 
     fn handle_doctype_name(&mut self) {
         match self.input.peek() {
             Some(c) if c.is_ascii_whitespace() => {
                 self.input.next_char();
-                // Skip rest of DOCTYPE until '>'
-                while let Some(c) = self.input.peek() {
-                    self.input.next_char();
-                    if c == '>' { self.emit_doctype(); return; }
-                }
-                self.emit_doctype();
+                self.state = TokenizerState::AfterDoctypeName;
             }
             Some('>') => { self.input.next_char(); self.emit_doctype(); }
             None => {
@@ -599,6 +603,332 @@ impl<'src> Tokenizer<'src> {
                 }
                 self.input.next_char();
             }
+        }
+    }
+
+    // -------------------------------------------------------
+    // RAWTEXT State Handlers
+    // -------------------------------------------------------
+
+    fn handle_rawtext(&mut self) {
+        match self.input.peek() {
+            None => { self.flush_text(); self.emit_eof(); }
+            Some('<') => { self.input.next_char(); self.state = TokenizerState::RAWTEXTLessThanSign; }
+            Some('\0') => {
+                self.diag_warn(DiagnosticCode::NullCharacterInInput, "Null in rawtext");
+                self.input.next_char();
+                self.text_buf.push('\u{FFFD}');
+            }
+            Some(ch) => {
+                if self.text_buf.is_empty() { self.text_start = self.input.location(); }
+                self.text_buf.push(ch);
+                self.input.next_char();
+            }
+        }
+    }
+
+    fn handle_rawtext_lt(&mut self) {
+        match self.input.peek() {
+            Some('/') => { self.input.next_char(); self.state = TokenizerState::RAWTEXTEndTagOpen; }
+            _ => { self.text_buf.push('<'); self.state = TokenizerState::RAWTEXT; }
+        }
+    }
+
+    fn handle_rawtext_end_tag_open(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_alphabetic() => {
+                self.tag = TagBuilder { is_end_tag: true, start: self.input.location(), ..Default::default() };
+                self.state = TokenizerState::RAWTEXTEndTagName;
+            }
+            _ => { self.text_buf.push('<'); self.text_buf.push('/'); self.state = TokenizerState::RAWTEXT; }
+        }
+    }
+
+    fn handle_rawtext_end_tag_name(&mut self) {
+        let _tag_name = self.tag.name.clone();
+        match self.input.peek() {
+            Some('>') => {
+                self.flush_text();
+                self.input.next_char();
+                self.emit_tag();
+            }
+            Some(c) if c.is_ascii_alphabetic() => {
+                self.tag.name.push(c.to_ascii_lowercase());
+                self.input.next_char();
+            }
+            Some(c) if c.is_ascii_whitespace() => {
+                self.flush_text();
+                self.input.next_char();
+                self.state = TokenizerState::BeforeAttributeName;
+            }
+            _ => {
+                self.text_buf.push('<'); self.text_buf.push('/');
+                self.text_buf.push_str(&self.tag.name);
+                self.state = TokenizerState::RAWTEXT;
+            }
+        }
+    }
+
+    // -------------------------------------------------------
+    // RCDATA State Handlers
+    // -------------------------------------------------------
+
+    fn handle_rcdata(&mut self) {
+        match self.input.peek() {
+            None => { self.flush_text(); self.emit_eof(); }
+            Some('<') => { self.input.next_char(); self.state = TokenizerState::RCDATALessThanSign; }
+            Some('\0') => {
+                self.diag_warn(DiagnosticCode::NullCharacterInInput, "Null in rcdata");
+                self.input.next_char();
+                self.text_buf.push('\u{FFFD}');
+            }
+            Some(ch) => {
+                if self.text_buf.is_empty() { self.text_start = self.input.location(); }
+                self.text_buf.push(ch);
+                self.input.next_char();
+            }
+        }
+    }
+
+    fn handle_rcdata_lt(&mut self) {
+        match self.input.peek() {
+            Some('/') => { self.input.next_char(); self.state = TokenizerState::RCDATAEndTagOpen; }
+            _ => { self.text_buf.push('<'); self.state = TokenizerState::RCDATA; }
+        }
+    }
+
+    fn handle_rcdata_end_tag_open(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_alphabetic() => {
+                self.tag = TagBuilder { is_end_tag: true, start: self.input.location(), ..Default::default() };
+                self.state = TokenizerState::RCDATAEndTagName;
+            }
+            _ => { self.text_buf.push('<'); self.text_buf.push('/'); self.state = TokenizerState::RCDATA; }
+        }
+    }
+
+    fn handle_rcdata_end_tag_name(&mut self) {
+        match self.input.peek() {
+            Some('>') => {
+                self.flush_text();
+                self.input.next_char();
+                self.emit_tag();
+            }
+            Some(c) if c.is_ascii_alphabetic() => {
+                self.tag.name.push(c.to_ascii_lowercase());
+                self.input.next_char();
+            }
+            Some(c) if c.is_ascii_whitespace() => {
+                self.flush_text();
+                self.input.next_char();
+                self.state = TokenizerState::BeforeAttributeName;
+            }
+            _ => {
+                self.text_buf.push('<'); self.text_buf.push('/');
+                self.text_buf.push_str(&self.tag.name);
+                self.state = TokenizerState::RCDATA;
+            }
+        }
+    }
+
+    // -------------------------------------------------------
+    // CDATA Section
+    // -------------------------------------------------------
+
+    fn handle_cdata_section(&mut self) {
+        if self.input.consume_str("]]>") {
+            self.state = TokenizerState::Data;
+        } else if self.input.peek().is_none() {
+            let end = self.input.location();
+            self.output.push(Token::Text {
+                data: std::mem::take(&mut self.text_buf),
+                is_whitespace_only: false,
+                span: SourceSpan::new(self.text_start, end),
+            });
+            self.emit_eof();
+        } else {
+            if self.text_buf.is_empty() { self.text_start = self.input.location(); }
+            if let Some(ch) = self.input.next_char() {
+                self.text_buf.push(ch);
+            }
+        }
+    }
+
+    // -------------------------------------------------------
+    // DOCTYPE Extended State Handlers
+    // -------------------------------------------------------
+
+    fn handle_before_doctype_name(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_whitespace() => { self.input.next_char(); }
+            Some('>') => {
+                self.doctype.force_quirks = true;
+                self.input.next_char();
+                self.emit_doctype();
+            }
+            None => {
+                self.doctype.force_quirks = true;
+                self.emit_doctype();
+                self.emit_eof();
+            }
+            Some(c) if c.is_ascii_alphabetic() => {
+                self.doctype.name = Some(String::new());
+                self.state = TokenizerState::DoctypeName;
+            }
+            Some(_) => {
+                self.doctype.force_quirks = true;
+                self.state = TokenizerState::BogusDoctype;
+            }
+        }
+    }
+
+    fn handle_after_doctype_name(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_whitespace() => { self.input.next_char(); }
+            Some('>') => { self.input.next_char(); self.emit_doctype(); }
+            None => { self.emit_doctype(); self.emit_eof(); }
+            _ => {
+                if self.input.consume_str_ci("PUBLIC") {
+                    self.state = TokenizerState::AfterDoctypePublicKeyword;
+                } else if self.input.consume_str_ci("SYSTEM") {
+                    self.state = TokenizerState::AfterDoctypeSystemKeyword;
+                } else {
+                    self.doctype.force_quirks = true;
+                    self.state = TokenizerState::BogusDoctype;
+                }
+            }
+        }
+    }
+
+    fn handle_after_doctype_public_keyword(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_whitespace() => { self.input.next_char(); }
+            Some('"') => {
+                self.input.next_char();
+                self.doctype.public_id = Some(String::new());
+                self.state = TokenizerState::DoctypePublicIdentifierDoubleQuoted;
+            }
+            Some('\'') => { self.state = TokenizerState::BogusDoctype; }
+            Some('>') => {
+                self.doctype.force_quirks = true;
+                self.input.next_char();
+                self.emit_doctype();
+            }
+            None => {
+                self.doctype.force_quirks = true;
+                self.emit_doctype();
+                self.emit_eof();
+            }
+            _ => { self.doctype.force_quirks = true; self.state = TokenizerState::BogusDoctype; }
+        }
+    }
+
+    fn handle_before_doctype_public_identifier(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_whitespace() => { self.input.next_char(); }
+            Some('"') => {
+                self.input.next_char();
+                self.doctype.public_id = Some(String::new());
+                self.state = TokenizerState::DoctypePublicIdentifierDoubleQuoted;
+            }
+            Some('\'') => { self.state = TokenizerState::BogusDoctype; }
+            Some('>') => {
+                self.doctype.force_quirks = true;
+                self.input.next_char();
+                self.emit_doctype();
+            }
+            None => {
+                self.doctype.force_quirks = true;
+                self.emit_doctype();
+                self.emit_eof();
+            }
+            _ => { self.doctype.force_quirks = true; self.state = TokenizerState::BogusDoctype; }
+        }
+    }
+
+    fn handle_doctype_public_id_dquote(&mut self) {
+        match self.input.peek() {
+            Some('"') => {
+                self.input.next_char();
+                self.state = TokenizerState::AfterDoctypeSystemKeyword;
+            }
+            None => {
+                self.doctype.force_quirks = true;
+                self.emit_doctype();
+                self.emit_eof();
+            }
+            Some(c) => {
+                if let Some(pid) = self.doctype.public_id.as_mut() { pid.push(c); }
+                self.input.next_char();
+            }
+        }
+    }
+
+    fn handle_after_doctype_system_keyword(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_whitespace() => { self.input.next_char(); }
+            Some('"') => {
+                self.input.next_char();
+                self.doctype.system_id = Some(String::new());
+                self.state = TokenizerState::DoctypeSystemIdentifierDoubleQuoted;
+            }
+            Some('>') => {
+                self.input.next_char();
+                self.emit_doctype();
+            }
+            None => {
+                self.emit_doctype();
+                self.emit_eof();
+            }
+            _ => { self.state = TokenizerState::BogusDoctype; }
+        }
+    }
+
+    fn handle_before_doctype_system_identifier(&mut self) {
+        match self.input.peek() {
+            Some(c) if c.is_ascii_whitespace() => { self.input.next_char(); }
+            Some('"') => {
+                self.input.next_char();
+                self.doctype.system_id = Some(String::new());
+                self.state = TokenizerState::DoctypeSystemIdentifierDoubleQuoted;
+            }
+            Some('>') => {
+                self.doctype.force_quirks = true;
+                self.input.next_char();
+                self.emit_doctype();
+            }
+            None => {
+                self.doctype.force_quirks = true;
+                self.emit_doctype();
+                self.emit_eof();
+            }
+            _ => { self.doctype.force_quirks = true; self.state = TokenizerState::BogusDoctype; }
+        }
+    }
+
+    fn handle_doctype_system_id_dquote(&mut self) {
+        match self.input.peek() {
+            Some('"') => {
+                self.input.next_char();
+                self.state = TokenizerState::BogusDoctype;
+            }
+            None => {
+                self.doctype.force_quirks = true;
+                self.emit_doctype();
+                self.emit_eof();
+            }
+            Some(c) => {
+                if let Some(sid) = self.doctype.system_id.as_mut() { sid.push(c); }
+                self.input.next_char();
+            }
+        }
+    }
+
+    fn handle_bogus_doctype(&mut self) {
+        match self.input.peek() {
+            Some('>') => { self.input.next_char(); self.emit_doctype(); }
+            None => { self.emit_doctype(); self.emit_eof(); }
+            Some(_) => { self.input.next_char(); }
         }
     }
 

@@ -78,6 +78,32 @@ pub enum TokenizerState {
     /// Consuming the DOCTYPE name token.
     DoctypeName,
 
+    // ---- RAWTEXT states (style, xmp, iframe, noembed, noframes, noscript) ----
+    RAWTEXT,
+    RAWTEXTLessThanSign,
+    RAWTEXTEndTagOpen,
+    RAWTEXTEndTagName,
+
+    // ---- RCDATA states (title, textarea) ----
+    RCDATA,
+    RCDATALessThanSign,
+    RCDATAEndTagOpen,
+    RCDATAEndTagName,
+
+    // ---- CDATA section (foreign content) ----
+    CDATASection,
+
+    // ---- DOCTYPE extended states ----
+    BeforeDoctypeName,
+    AfterDoctypeName,
+    AfterDoctypePublicKeyword,
+    BeforeDoctypePublicIdentifier,
+    DoctypePublicIdentifierDoubleQuoted,
+    AfterDoctypeSystemKeyword,
+    BeforeDoctypeSystemIdentifier,
+    DoctypeSystemIdentifierDoubleQuoted,
+    BogusDoctype,
+
     // ---- Terminal ----
 
     /// Emitted an EOF token; processing is complete.

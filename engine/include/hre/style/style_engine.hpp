@@ -1,7 +1,7 @@
 #pragma once
 
 #include <hre/dom/node.hpp>
-#include <hre/css/css_parser.hpp>
+#include <hre/css/style_engine.hpp>
 #include <map>
 
 namespace hre::style {

@@ -2,12 +2,18 @@
 #include <hjs/runtime/environment.hpp>
 #include <hjs/runtime/object.hpp>
 #include <hjs/runtime/stdlib.hpp>
+#include <hjs/runtime/promise.hpp>
 #include <iostream>
 #include <cmath>
+#include <thread>
+#include <chrono>
+#include <unordered_map>
 
 namespace hjs::vm {
 
 runtime::Environment VM::m_globals;
+bool VM::s_debug_mode = false;
+bool VM::s_profile_mode = false;
 
 struct CallFrame {
     const JSClosure* closure;
@@ -69,6 +75,16 @@ VM::InterpretResult VM::interpret(const Chunk& chunk) {
     m_chunk = &chunk;
     m_ip    = chunk.code().data();
 
+    // Periodically collect GC
+    try_gc();
+
+    if (s_debug_mode) {
+        std::wcout << L"[DEBUG] Executing chunk with " << m_chunk->code().size() << L" bytes\n";
+    }
+
+    // Profile top-level execution
+    debug::Profiler::instance().begin_function(L"<main>");
+
     // Create a top-level closure for the main script
     auto script_function = std::make_shared<JSFunction>(L"main", 0, m_chunk);
     auto script_closure = std::make_shared<JSClosure>(script_function);
@@ -99,6 +115,14 @@ VM::InterpretResult VM::interpret(const Chunk& chunk) {
         }
 
         uint8_t instruction = read_byte();
+
+        // Instruction count for profiling
+        debug::Profiler::instance().increment_instructions();
+
+        if (s_debug_mode) {
+            std::wcout << L"[DEBUG] IP=" << (m_ip - m_chunk->code().data() - 1)
+                       << L" Op=" << (int)instruction << L"\n";
+        }
 
         switch ((OpCode)instruction) {
 
@@ -267,12 +291,64 @@ VM::InterpretResult VM::interpret(const Chunk& chunk) {
         }
 
         // ---- Return -----------------------------------------------------
-        case OpCode::Return: {
+            case OpCode::Await: {
+                // Pop the Promise from the stack
+                Value promise_val = pop();
+                if (!promise_val.is_object()) {
+                    // Reject with error
+                    push(Value(L"TypeError: await value is not a Promise"));
+                    return InterpretResult::RuntimeError;
+                }
+                
+                auto* promise_obj = dynamic_cast<hjs::Promise*>(promise_val.as_object().get());
+                if (!promise_obj) {
+                    // Not a Promise, resolve immediately
+                    push(promise_val);
+                    break;
+                }
+                
+                // If the Promise is already resolved, push its value
+                if (promise_obj->state() == hjs::Promise::State::Fulfilled) {
+                    push(promise_obj->result());
+                    break;
+                }
+                
+                // If the Promise is rejected, reject immediately
+                if (promise_obj->state() == hjs::Promise::State::Rejected) {
+                    push(promise_obj->result());
+                    return InterpretResult::RuntimeError;
+                }
+                
+                // If pending, we need to suspend and resume later
+                // For now, simulate by blocking until resolved (not ideal)
+                // In a real engine, we would yield control to an event loop
+                // This is a simplified, blocking implementation
+                
+                // We'll use a simple busy wait. This is inefficient but functional for demo.
+                // In practice, the engine should have a scheduler.
+                while (promise_obj->state() == hjs::Promise::State::Pending) {
+                    // Yield to allow other threads to resolve the Promise
+                    // This is a placeholder - in a real system, we'd use condition variables
+                    // For now, we just sleep briefly to avoid 100% CPU
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                
+                // Now we know it's resolved, push the result
+                if (promise_obj->state() == hjs::Promise::State::Fulfilled) {
+                    push(promise_obj->result());
+                } else {
+                    push(promise_obj->result());
+                    return InterpretResult::RuntimeError;
+                }
+                break;
+            }
+            case OpCode::Return: {
             Value result = pop();
             size_t frame_start = frames.back().stack_start;
             frames.pop_back();
 
             if (frames.empty()) {
+                debug::Profiler::instance().end_function();
                 return InterpretResult::Ok;
             }
 
@@ -309,6 +385,9 @@ VM::InterpretResult VM::interpret(const Chunk& chunk) {
                 // Closure call
                 if (auto* target_closure = dynamic_cast<JSClosure*>(obj.get())) {
                     auto fn = target_closure->function();
+                    // Hot function tracking
+                    fn->increment_hot();
+                    debug::Profiler::instance().begin_function(fn->name());
                     frames.back().ip = m_ip;
                     frames.push_back(CallFrame{ target_closure, fn->chunk(), fn->chunk()->code().data(), callee_slot });
                     m_chunk = fn->chunk();
@@ -318,6 +397,8 @@ VM::InterpretResult VM::interpret(const Chunk& chunk) {
 
                 // JS function call (legacy/direct)
                 if (auto* target_fn = dynamic_cast<JSFunction*>(obj.get())) {
+                    target_fn->increment_hot();
+                    debug::Profiler::instance().begin_function(target_fn->name());
                     auto fn_copy = std::make_shared<JSFunction>(target_fn->name(), target_fn->arity(), target_fn->chunk());
                     fn_copy->set_upvalue_count(target_fn->upvalue_count());
                     auto temp_closure = std::make_shared<JSClosure>(fn_copy);
@@ -387,19 +468,43 @@ VM::InterpretResult VM::interpret(const Chunk& chunk) {
             Value obj_val = pop();
             if (obj_val.is_object()) {
                 auto obj = obj_val.as_object();
-                Value* val = obj->get_property(name);
-                if (val) {
-                    bool is_callable = val->is_object() &&
-                        (dynamic_cast<JSFunction*>(val->as_object().get()) ||
-                         dynamic_cast<NativeFunction*>(val->as_object().get()));
-                    push(is_callable
-                        ? Value(std::make_shared<JSBoundFunction>(obj_val, *val))
-                        : *val);
-                } else {
-                    push(Value());
+
+                // Try 16-slot polymorphic inline cache
+                auto name_hash = std::hash<std::wstring>{}(name);
+                ICKey key{obj.get(), name_hash};
+                auto& slot = m_pic_cache[key];
+
+                Value cached;
+                bool is_method = false;
+                if (slot.ic.lookup(obj.get(), name, cached, is_method)) {
+                    debug::Profiler::instance().record_ic_hit();
+                    push(is_method
+                        ? Value(std::make_shared<JSBoundFunction>(obj_val, cached))
+                        : cached);
+                    break;
                 }
+
+                debug::Profiler::instance().record_ic_miss();
+
+                // Cache miss — do full lookup
+                {
+                    Value* val = obj->get_property(name);
+                    if (val) {
+                        bool is_callable = val->is_object() &&
+                            (dynamic_cast<JSFunction*>(val->as_object().get()) ||
+                             dynamic_cast<NativeFunction*>(val->as_object().get()));
+
+                        slot.ic.update(obj.get(), name, *val, is_callable);
+
+                        push(is_callable
+                            ? Value(std::make_shared<JSBoundFunction>(obj_val, *val))
+                            : *val);
+                    } else {
+                        push(Value());
+                    }
+                }
+                break;
             } else if (obj_val.is_string()) {
-                // String properties: length + prototype methods
                 if (name == L"length") {
                     push(Value((double)obj_val.as_string().size()));
                 } else if (runtime::StdLib::string_prototype) {
@@ -418,7 +523,14 @@ VM::InterpretResult VM::interpret(const Chunk& chunk) {
             std::wstring name = read_constant().as_string();
             Value value   = pop();
             Value obj_val = pop();
-            if (obj_val.is_object()) obj_val.as_object()->set_property(name, value);
+            if (obj_val.is_object()) {
+                // Invalidate PIC cache for this object+property pair
+                auto name_hash = std::hash<std::wstring>{}(name);
+                ICKey key{obj_val.as_object().get(), name_hash};
+                m_pic_cache[key].ic.invalidate();
+
+                obj_val.as_object()->set_property(name, value);
+            }
             push(value);
             break;
         }
@@ -558,6 +670,32 @@ void VM::close_upvalues(size_t last_slot) {
             it = m_open_upvalues.erase(it);
         } else {
             ++it;
+        }
+    }
+}
+
+// ---- Microtask queue -----------------------------------------------------
+
+void VM::enqueue_microtask(std::function<void()> task) {
+    m_microtask_queue.push(Microtask{std::move(task)});
+}
+
+void VM::drain_microtask_queue() {
+    while (!m_microtask_queue.empty()) {
+        auto mt = std::move(m_microtask_queue.front());
+        m_microtask_queue.pop();
+        mt.task();
+    }
+}
+
+// ---- GC --------------------------------------------------------------------
+
+void VM::try_gc() {
+    auto& gc = gc::GarbageCollector::instance();
+    if (gc.should_collect()) {
+        gc.collect();
+        if (s_debug_mode) {
+            std::wcout << L"[GC] Collected. Tracked: " << gc.allocation_count() << L"\n";
         }
     }
 }

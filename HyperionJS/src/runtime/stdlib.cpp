@@ -1,4 +1,6 @@
 #include <hjs/runtime/stdlib.hpp>
+#include <hjs/runtime/array_buffer.hpp>
+#include <hjs/runtime/regexp.hpp>
 #include <hjs/vm/vm.hpp>
 #include <cmath>
 #include <algorithm>
@@ -93,6 +95,132 @@ Value array_slice(Value receiver, int argc, Value* args) {
     for (int i = start; i < end_; i++) result->elements.push_back(arr->elements[i]);
     result->set_property(L"length", Value((double)result->elements.size()));
     if (StdLib::array_prototype) result->set_prototype(StdLib::array_prototype);
+    return Value(result);
+}
+
+// ---- ES2023 Array Methods --------------------------------------------------
+
+Value array_at(Value receiver, int argc, Value* args) {
+    if (!receiver.is_object()) return Value();
+    auto arr = std::dynamic_pointer_cast<JSArray>(receiver.as_object());
+    if (!arr) return Value();
+    int n = (int)arr->elements.size();
+    int idx = argc > 0 ? (int)args[0].as_number() : 0;
+    if (idx < 0) idx = n + idx;
+    if (idx < 0 || idx >= n) return Value();
+    return arr->elements[idx];
+}
+
+Value array_findLast(Value receiver, int argc, Value* args) {
+    if (argc == 0 || !args[0].is_object()) return Value();
+    auto arr = std::dynamic_pointer_cast<JSArray>(receiver.as_object());
+    if (!arr) return Value();
+    auto fn = std::dynamic_pointer_cast<NativeFunction>(args[0].as_object());
+    if (!fn) return Value();
+    for (int i = (int)arr->elements.size() - 1; i >= 0; i--) {
+        Value cb_args[] = { arr->elements[i], Value((double)i), receiver };
+        Value res = fn->function()(Value(), 3, cb_args);
+        if (res.as_boolean()) return arr->elements[i];
+    }
+    return Value();
+}
+
+Value array_findLastIndex(Value receiver, int argc, Value* args) {
+    if (argc == 0 || !args[0].is_object()) return Value();
+    auto arr = std::dynamic_pointer_cast<JSArray>(receiver.as_object());
+    if (!arr) return Value();
+    auto fn = std::dynamic_pointer_cast<NativeFunction>(args[0].as_object());
+    if (!fn) return Value();
+    for (int i = (int)arr->elements.size() - 1; i >= 0; i--) {
+        Value cb_args[] = { arr->elements[i], Value((double)i), receiver };
+        Value res = fn->function()(Value(), 3, cb_args);
+        if (res.as_boolean()) return Value((double)i);
+    }
+    return Value(-1.0);
+}
+
+Value array_toReversed(Value receiver, int, Value*) {
+    if (!receiver.is_object()) return Value();
+    auto arr = std::dynamic_pointer_cast<JSArray>(receiver.as_object());
+    if (!arr) return Value();
+    auto result = std::make_shared<JSArray>();
+    for (int i = (int)arr->elements.size() - 1; i >= 0; i--) result->elements.push_back(arr->elements[i]);
+    result->set_property(L"length", Value((double)result->elements.size()));
+    if (StdLib::array_prototype) result->set_prototype(StdLib::array_prototype);
+    return Value(result);
+}
+
+Value array_toSorted(Value receiver, int argc, Value* args) {
+    if (!receiver.is_object()) return Value();
+    auto arr = std::dynamic_pointer_cast<JSArray>(receiver.as_object());
+    if (!arr) return Value();
+    auto result = std::make_shared<JSArray>();
+    result->elements = arr->elements;
+    if (argc > 0 && args[0].is_object()) {
+        auto cmp = std::dynamic_pointer_cast<NativeFunction>(args[0].as_object());
+        if (cmp) {
+            std::sort(result->elements.begin(), result->elements.end(),
+                [&](const Value& a, const Value& b) {
+                    Value cmp_args[] = { a, b };
+                    Value r = cmp->function()(Value(), 2, cmp_args);
+                    return r.as_number() < 0;
+                });
+        }
+    } else {
+        std::sort(result->elements.begin(), result->elements.end(),
+            [](const Value& a, const Value& b) {
+                return a.to_string() < b.to_string();
+            });
+    }
+    result->set_property(L"length", Value((double)result->elements.size()));
+    if (StdLib::array_prototype) result->set_prototype(StdLib::array_prototype);
+    return Value(result);
+}
+
+Value array_toSpliced(Value receiver, int argc, Value* args) {
+    if (!receiver.is_object()) return Value();
+    auto arr = std::dynamic_pointer_cast<JSArray>(receiver.as_object());
+    if (!arr) return Value();
+    int n = (int)arr->elements.size();
+    int start = argc > 0 ? (int)args[0].as_number() : 0;
+    if (start < 0) start = std::max(0, n + start);
+    int delete_count = argc > 1 ? (int)args[1].as_number() : n - start;
+    auto result = std::make_shared<JSArray>();
+    for (int i = 0; i < start; i++) result->elements.push_back(arr->elements[i]);
+    for (int i = 2; i < argc; i++) result->elements.push_back(args[i]);
+    for (int i = start + delete_count; i < n; i++) result->elements.push_back(arr->elements[i]);
+    result->set_property(L"length", Value((double)result->elements.size()));
+    if (StdLib::array_prototype) result->set_prototype(StdLib::array_prototype);
+    return Value(result);
+}
+
+// ---- ES2023 String Methods -------------------------------------------------
+
+Value string_isWellFormed(Value receiver, int, Value*) {
+    std::wstring s = receiver.to_string();
+    for (size_t i = 0; i < s.size(); i++) {
+        if ((s[i] & 0xFC00) == 0xD800) {
+            if (i + 1 >= s.size() || (s[i + 1] & 0xFC00) != 0xDC00) return Value(false);
+            i++;
+        }
+    }
+    return Value(true);
+}
+
+Value string_toWellFormed(Value receiver, int, Value*) {
+    std::wstring s = receiver.to_string();
+    std::wstring result;
+    for (size_t i = 0; i < s.size(); i++) {
+        if ((s[i] & 0xFC00) == 0xD800) {
+            if (i + 1 < s.size() && (s[i + 1] & 0xFC00) == 0xDC00) {
+                result += s[i]; result += s[i + 1]; i++;
+            } else {
+                result += L"\uFFFD";
+            }
+        } else {
+            result += s[i];
+        }
+    }
     return Value(result);
 }
 
@@ -230,6 +358,12 @@ void StdLib::initialize() {
     array_prototype->set_property(L"reverse", ap(array_reverse));
     array_prototype->set_property(L"indexOf", ap(array_indexOf));
     array_prototype->set_property(L"slice",   ap(array_slice));
+    array_prototype->set_property(L"at",      ap(array_at));
+    array_prototype->set_property(L"findLast", ap(array_findLast));
+    array_prototype->set_property(L"findLastIndex", ap(array_findLastIndex));
+    array_prototype->set_property(L"toReversed", ap(array_toReversed));
+    array_prototype->set_property(L"toSorted", ap(array_toSorted));
+    array_prototype->set_property(L"toSpliced", ap(array_toSpliced));
 
     // String prototype
     string_prototype = std::make_shared<JSObject>();
@@ -245,6 +379,8 @@ void StdLib::initialize() {
     string_prototype->set_property(L"substring",    sp(string_substring));
     string_prototype->set_property(L"replace",      sp(string_replace));
     string_prototype->set_property(L"repeat",       sp(string_repeat));
+    string_prototype->set_property(L"isWellFormed", sp(string_isWellFormed));
+    string_prototype->set_property(L"toWellFormed", sp(string_toWellFormed));
 
     // Math object
     math_object = std::make_shared<JSObject>();
@@ -264,6 +400,18 @@ void StdLib::initialize() {
     math_object->set_property(L"E",       Value(2.718281828459045));
 
     hjs::vm::VM::m_globals.define(L"Math", Value(math_object));
+
+    // Register ArrayBuffer
+    auto array_buffer_ctor = std::make_shared<NativeFunction>(ArrayBuffer::create);
+    hjs::vm::VM::m_globals.define(L"ArrayBuffer", Value(array_buffer_ctor));
+
+    // Register SharedArrayBuffer
+    auto shared_buffer_ctor = std::make_shared<NativeFunction>(ArrayBuffer::create_shared);
+    hjs::vm::VM::m_globals.define(L"SharedArrayBuffer", Value(shared_buffer_ctor));
+
+    // Register RegExp
+    auto regexp_ctor = std::make_shared<NativeFunction>(RegExp::create);
+    hjs::vm::VM::m_globals.define(L"RegExp", Value(regexp_ctor));
 }
 
 } // namespace hjs::runtime

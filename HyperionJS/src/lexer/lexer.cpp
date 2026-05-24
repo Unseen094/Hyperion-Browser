@@ -43,13 +43,23 @@ namespace {
         {L"undefined",  TokenType::Nil},
         {L"var",        TokenType::Var},
         {L"void",       TokenType::Void},
-        {L"while",      TokenType::While},
-    };
+    {L"while", TokenType::While},
+    {L"async", TokenType::Async},
+    {L"await", TokenType::Await},
+};
 }
 
 Lexer::Lexer(std::wstring source) : m_source(std::move(source)) {}
 
 std::vector<Token> Lexer::tokenize() {
+    // Skip hashbang (#!...) at start of file
+    if (m_source.size() >= 2 && m_source[0] == L'#' && m_source[1] == L'!') {
+        while (!is_at_end() && advance() != L'\n') {}
+        m_line++;
+        m_column = 1;
+        m_start = m_current;
+    }
+
     while (!is_at_end()) {
         m_start = m_current;
         scan_token();

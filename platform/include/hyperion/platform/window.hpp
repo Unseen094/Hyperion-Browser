@@ -17,6 +17,7 @@ using keyboard_callback = std::function<void(UINT key, bool is_down)>;
 using char_callback = std::function<void(wchar_t c)>;
 using mouse_callback = std::function<void(int x, int y, bool is_down)>;
 using mouse_wheel_callback = std::function<void(float delta)>;
+using activate_callback = std::function<void(bool focused)>;
 
 struct window_config {
     std::wstring title = L"Hyperion Browser";
@@ -40,6 +41,9 @@ public:
     void on_char(char_callback cb) { m_char_cb = std::move(cb); }
     void on_mouse(mouse_callback cb) { m_mouse_cb = std::move(cb); }
     void on_mouse_wheel(mouse_wheel_callback cb) { m_scroll_cb = std::move(cb); }
+    void on_activate(activate_callback cb) { m_activate_cb = std::move(cb); }
+    void on_nc_hit_test(std::function<LRESULT(POINT)> cb) { m_nc_hittest_cb = std::move(cb); }
+    void on_nc_calc_size(std::function<void(bool, LPARAM)> cb) { m_nccalcsize_cb = std::move(cb); }
     
     HWND handle() const { return m_hwnd; }
 
@@ -53,6 +57,9 @@ private:
     char_callback m_char_cb;
     mouse_callback m_mouse_cb;
     mouse_wheel_callback m_scroll_cb;
+    activate_callback m_activate_cb;
+    std::function<LRESULT(POINT)> m_nc_hittest_cb;
+    std::function<void(bool, LPARAM)> m_nccalcsize_cb;
 };
 
 } // namespace hyperion::platform

@@ -256,6 +256,11 @@ void Compiler::visit_set_index_expr(hjs::ast::SetIndexExpr& expr) {
     emit_op(OpCode::SetIndex);
 }
 
+void Compiler::visit_await(hjs::ast::AwaitExpr& expr) {
+    expr.expression->accept(*this);
+    emit_op(OpCode::Await);
+}
+
 void Compiler::visit_arrow_function(hjs::ast::ArrowFunctionExpr& expr) {
     // Compile arrow function as an anonymous JSFunction
     auto fn_chunk = std::make_unique<Chunk>();

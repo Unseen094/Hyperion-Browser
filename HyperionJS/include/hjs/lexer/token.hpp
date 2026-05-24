@@ -48,6 +48,7 @@ enum class TokenType {
     Break, Continue, Throw, Try, Catch, Finally,
     In, Of, Import, Export, Default, Delete, Void,
     Switch, Case, Extends, Static,
+    Async, Await,
 
     EndOfFile,
     Error

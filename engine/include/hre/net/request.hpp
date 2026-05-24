@@ -1,7 +1,4 @@
 #pragma once
-
-#include <windows.h>
-#include <wininet.h>
 #include <string>
 #include <vector>
 

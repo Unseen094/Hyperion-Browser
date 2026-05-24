@@ -35,6 +35,7 @@ public:
     void visit_index_expr(hjs::ast::IndexExpr& expr) override;
     void visit_set_index_expr(hjs::ast::SetIndexExpr& expr) override;
     void visit_typeof_expr(hjs::ast::TypeofExpr& expr) override;
+    void visit_await(hjs::ast::AwaitExpr& expr) override;
     void visit_arrow_function(hjs::ast::ArrowFunctionExpr& expr) override;
     void visit_template_string(hjs::ast::TemplateStringExpr& expr) override;
 

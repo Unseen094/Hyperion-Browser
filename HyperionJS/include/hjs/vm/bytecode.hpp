@@ -90,6 +90,7 @@ enum class OpCode : uint8_t {
     TryStart, // 2-byte jump offset to catch block
     TryEnd,
     Closure,
+    Await,
 };
 
 // ---- Chunk -----------------------------------------------------------------

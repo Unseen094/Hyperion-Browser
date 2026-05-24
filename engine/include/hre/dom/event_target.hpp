@@ -4,58 +4,59 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <map>
 
 namespace hre::dom {
 
-enum class event_phase {
-    NONE,
-    CAPTURING,
-    AT_TARGET,
-    BUBBLING
-};
+class Event;
+class EventListener;
 
-struct event {
-    std::wstring type;
-    bool bubbles = true;
-    bool cancelable = true;
-    bool propagation_stopped = false;
-    event_phase phase = event_phase::NONE;
-    class node* target = nullptr;
-    class node* current_target = nullptr;
-};
-
-class event_target {
+class EventTarget {
 public:
-    using listener_func = std::function<void(event&)>;
+    virtual ~EventTarget() = default;
 
-    void add_event_listener(const std::wstring& type, listener_func listener) {
-        m_listeners[type].push_back(listener);
-    }
-
-    void dispatch_event(event& e) {
-        // 1. Capturing Phase (would require tree traversal)
-        // 2. Target Phase
-        e.phase = event_phase::AT_TARGET;
-        e.current_target = reinterpret_cast<node*>(this);
-        
-        if (m_listeners.count(e.type)) {
-            for (auto& listener : m_listeners[e.type]) {
-                if (e.propagation_stopped) break;
-                listener(e);
-            }
-        }
-
-        // 3. Bubbling Phase
-        if (e.bubbles && !e.propagation_stopped) {
-            bubble_event(e);
-        }
-    }
+    void add_event_listener(const std::wstring& type, std::shared_ptr<EventListener> listener);
+    void remove_event_listener(const std::wstring& type, std::shared_ptr<EventListener> listener);
+    bool dispatch_event(std::shared_ptr<Event> event);
 
 protected:
-    virtual void bubble_event(event& e) = 0;
+    std::map<std::wstring, std::vector<std::shared_ptr<EventListener>>> m_listeners;
+};
 
-private:
-    std::map<std::wstring, std::vector<listener_func>> m_listeners;
+class Event {
+public:
+    Event(const std::wstring& type, bool bubbles = true, bool cancelable = false)
+        : type(type), bubbles(bubbles), cancelable(cancelable), stopped(false) {}
+    virtual ~Event() = default;
+
+    std::wstring type;
+    bool bubbles;
+    bool cancelable;
+    bool stopped;
+
+    void stop_propagation() { stopped = true; }
+};
+
+class MouseEvent : public Event {
+public:
+    MouseEvent(const std::wstring& type, int client_x, int client_y)
+        : Event(type, true, false), client_x(client_x), client_y(client_y) {}
+    int client_x;
+    int client_y;
+};
+
+class KeyboardEvent : public Event {
+public:
+    KeyboardEvent(const std::wstring& type, const std::wstring& key, int code)
+        : Event(type, true, false), key(key), code(code) {}
+    std::wstring key;
+    int code;
+};
+
+class EventListener {
+public:
+    virtual ~EventListener() = default;
+    virtual void handle_event(std::shared_ptr<Event> event) = 0;
 };
 
 } // namespace hre::dom

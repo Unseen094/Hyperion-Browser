@@ -10,6 +10,24 @@ namespace hjs::vm { class Chunk; }
 
 namespace hjs {
 
+// ---- Polymorphic Inline Cache Site ---------------------------------------
+
+struct PICEntry {
+    size_t shape_generation = 0;
+    Value cached_value;
+    bool is_method = false;
+    bool valid = false;
+};
+
+static constexpr int PIC_MAX_SHAPES = 4;
+
+struct PICSlot {
+    PICEntry entries[PIC_MAX_SHAPES];
+    int count = 0;
+};
+
+// ---- JSObject ------------------------------------------------------------
+
 class JSObject {
 public:
     virtual ~JSObject() = default;
@@ -18,9 +36,12 @@ public:
         m_prototype = std::move(proto);
     }
     std::shared_ptr<JSObject> prototype() const { return m_prototype; }
+    size_t shape_generation() const { return m_shape_generation; }
 
     virtual void set_property(const std::wstring& name, Value value) {
+        bool is_new = m_properties.find(name) == m_properties.end();
         m_properties[name] = std::move(value);
+        if (is_new) m_shape_generation++;
     }
 
     virtual Value* get_property(const std::wstring& name) {
@@ -37,6 +58,7 @@ public:
         auto it = m_properties.find(name);
         if (it != m_properties.end()) {
             m_properties.erase(it);
+            m_shape_generation++;
             return true;
         }
         return false;
@@ -45,6 +67,7 @@ public:
 private:
     std::map<std::wstring, Value> m_properties;
     std::shared_ptr<JSObject> m_prototype;
+    size_t m_shape_generation = 1;
 };
 
 class JSBoundFunction : public JSObject {
@@ -91,11 +114,23 @@ public:
     int upvalue_count() const { return m_upvalue_count; }
     void set_upvalue_count(int count) { m_upvalue_count = count; }
 
+    // Hot function tracking for baseline JIT
+    int hot_count() const { return m_hot_count; }
+    bool is_hot() const { return m_hot_count >= 10; }
+    void increment_hot() { if (m_hot_count < 100) m_hot_count++; }
+
+    // Polymorphic inline cache per function site
+    std::vector<PICSlot>& pic_slots() { return m_pic_slots; }
+
+    void add_pic_slot() { m_pic_slots.emplace_back(); }
+
 private:
     std::wstring m_name;
     int m_arity;
     int m_upvalue_count = 0;
     const hjs::vm::Chunk* m_chunk;
+    int m_hot_count = 0;
+    std::vector<PICSlot> m_pic_slots;
 };
 
 typedef Value (*NativeFn)(Value receiver, int arg_count, Value* args);

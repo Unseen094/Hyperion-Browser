@@ -4,13 +4,25 @@ cmake_minimum_required(VERSION 3.20)
 project(Hyperion
     VERSION 0.1.0
     DESCRIPTION "Commercial-grade native web browser"
-    LANGUAGES CXX
+    LANGUAGES CXX C
 )
 
 # C++ Standard and MSVC Settings
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Target Windows 10 RS3+ (1709+) for modern D2D/DWrite interfaces
+if(WIN32)
+    add_definitions(
+        -D_WIN32_WINNT=0x0A00
+        -DNTDDI_VERSION=0x0A000004
+        -DWINVER=0x0A00
+        -DNOMINMAX
+        -D_CRT_SECURE_NO_WARNINGS
+        -DWIN32_LEAN_AND_MEAN
+    )
+endif()
 
 # Export compile commands for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -38,7 +50,6 @@ if(MSVC)
         /sdl         # Additional Security Development Lifecycle checks
         /guard:cf    # Control Flow Guard
     )
-    
     # Optimization for release
     add_compile_options("$<$<CONFIG:Release>:/O2;/Oi;/Ot;/GL>")
     add_link_options("$<$<CONFIG:Release>:/LTCG>")
@@ -48,12 +59,11 @@ endif()
 include_directories(HyperionJS/include)
 
 # Subdirectories
+add_subdirectory(HyperionJS)
 add_subdirectory(platform)
 add_subdirectory(ui)
 add_subdirectory(engine)
 add_subdirectory(browser)
-add_subdirectory(HyperionJS)
-add_subdirectory(renderer)
 add_subdirectory(apps/hyperion)
 
 # Testing (optional)

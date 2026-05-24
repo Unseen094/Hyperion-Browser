@@ -25,7 +25,8 @@ struct render_command {
     float height = 0.0f;
     
     // Styling properties
-    uint32_t bg_color = 0;          // AARRGGBB
+    uint32_t bg_color = 0;          // AARRGGBB (or first gradient color)
+    uint32_t bg_color2 = 0;         // second gradient color (0 = no gradient)
     uint32_t border_color = 0;      // AARRGGBB
     float border_width = 0.0f;
     float border_radius = 0.0f;
@@ -74,6 +75,7 @@ inline std::vector<uint8_t> serialize_frame(const std::vector<render_command>& c
         write_data(&cmd.width, sizeof(cmd.width));
         write_data(&cmd.height, sizeof(cmd.height));
         write_data(&cmd.bg_color, sizeof(cmd.bg_color));
+        write_data(&cmd.bg_color2, sizeof(cmd.bg_color2));
         write_data(&cmd.border_color, sizeof(cmd.border_color));
         write_data(&cmd.border_width, sizeof(cmd.border_width));
         write_data(&cmd.border_radius, sizeof(cmd.border_radius));
@@ -132,6 +134,7 @@ inline std::vector<render_command> deserialize_frame(const std::vector<uint8_t>&
         if (!read_data(&cmd.width, sizeof(cmd.width))) break;
         if (!read_data(&cmd.height, sizeof(cmd.height))) break;
         if (!read_data(&cmd.bg_color, sizeof(cmd.bg_color))) break;
+        if (!read_data(&cmd.bg_color2, sizeof(cmd.bg_color2))) break;
         if (!read_data(&cmd.border_color, sizeof(cmd.border_color))) break;
         if (!read_data(&cmd.border_width, sizeof(cmd.border_width))) break;
         if (!read_data(&cmd.border_radius, sizeof(cmd.border_radius))) break;

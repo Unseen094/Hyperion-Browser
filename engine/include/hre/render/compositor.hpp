@@ -36,7 +36,7 @@ public:
     void begin_frame(hyperion::ui::renderer& r);
     void end_frame(hyperion::ui::renderer& r);
 
-    void update_layer(const std::wstring& layer_id, const hre::layout::layout_node& root, hyperion::ui::renderer& r);
+    void update_layer(const std::wstring& layer_id, const hre::layout::LayoutNode& root, hyperion::ui::renderer& r);
     void composite(hyperion::ui::renderer& r);
 
     // Layer management

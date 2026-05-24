@@ -51,6 +51,7 @@ private:
     std::unique_ptr<ast::Expr> call();
     std::unique_ptr<ast::Expr> finish_call(std::unique_ptr<ast::Expr> callee);
     std::unique_ptr<ast::Expr> primary();
+    std::unique_ptr<ast::Expr> await_expression();
     std::unique_ptr<ast::Expr> parse_arrow_body(std::vector<std::wstring> params);
 
     // Helpers

@@ -1,0 +1,25 @@
+[package]
+name = "hyperion_parser"
+version = "0.1.0"
+edition = "2021"
+authors = ["Hyperion Browser Engine Team"]
+description = "Production-grade ES2020+ JavaScript parser for the Hyperion JavaScript Engine"
+license = "MIT"
+
+[lib]
+name = "hyperion_parser"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = []
+strict = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[dependencies]
+phf = "0.11"
+unicode-identities = "1.0"

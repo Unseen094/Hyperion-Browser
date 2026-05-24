@@ -14,6 +14,7 @@ target_link_libraries(hyperion_renderer
     PRIVATE
         hyperion_platform
         hre
+        hjs
 )
 
 # Render process is launched in the background, keeping it as standard executable

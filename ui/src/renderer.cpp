@@ -12,6 +12,7 @@ renderer::renderer() {}
 renderer::~renderer() {}
 
 bool renderer::initialize(HWND hwnd) {
+    m_main_hwnd = hwnd;
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory7), &m_d2d_factory);
     if (FAILED(hr)) {
         HYPERION_LOG_ERROR("Failed to create D2D factory");
@@ -95,7 +96,11 @@ void renderer::end_draw() {
     if (m_d2d_context) {
         HRESULT hr = m_d2d_context->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
-            // Handle device loss in a real app
+            if (m_main_hwnd) {
+                create_device_resources(m_main_hwnd);
+            }
+        } else if (FAILED(hr)) {
+            HYPERION_LOG_ERROR("EndDraw failed: HRESULT {}", hr);
         }
         m_swap_chain->Present(1, 0);
     }

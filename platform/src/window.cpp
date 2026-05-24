@@ -1,5 +1,6 @@
 #include <hyperion/platform/window.hpp>
 #include <hyperion/platform/logging.hpp>
+#include <windowsx.h>
 
 namespace hyperion::platform {
 
@@ -48,7 +49,7 @@ window::window(const window_config& config) {
 }
 
 window::~window() {
-    if (m_hwnd) {
+    if (m_hwnd && IsWindow(m_hwnd)) {
         DestroyWindow(m_hwnd);
     }
     UnregisterClassW(g_window_class_name, m_hinstance);
@@ -81,9 +82,22 @@ LRESULT CALLBACK window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
     }
 
     auto* win = reinterpret_cast<window*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
-    (void)win;
 
     switch (msg) {
+        case WM_NCCALCSIZE:
+            if (win && win->m_nccalcsize_cb) {
+                win->m_nccalcsize_cb(wparam != FALSE, lparam);
+                return 0;
+            }
+            break;
+        case WM_NCHITTEST: {
+            if (win && win->m_nc_hittest_cb) {
+                POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+                LRESULT result = win->m_nc_hittest_cb(pt);
+                if (result != HTCLIENT) return result;
+            }
+            break;
+        }
         case WM_SIZE:
             if (win && win->m_resize_cb) {
                 win->m_resize_cb(LOWORD(lparam), HIWORD(lparam));
@@ -129,8 +143,29 @@ LRESULT CALLBACK window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             }
             return 0;
         case WM_DESTROY:
+            if (win) win->m_hwnd = nullptr;
             PostQuitMessage(0);
             return 0;
+
+        case WM_CLOSE:
+            // Let default handling call DestroyWindow which triggers WM_DESTROY
+            break;
+
+        case WM_SETCURSOR: {
+            if (LOWORD(lparam) == HTCLIENT) {
+                // Allow each area to set its own cursor via WM_SETCURSOR
+                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+                return TRUE;
+            }
+            break;
+        }
+
+        case WM_ACTIVATE: {
+            if (win && win->m_activate_cb) {
+                win->m_activate_cb(LOWORD(wparam) != WA_INACTIVE);
+            }
+            break;
+        }
     }
 
     return DefWindowProc(hwnd, msg, wparam, lparam);
